@@ -6,6 +6,6 @@
 
 # source /opt/conda/bin/activate dpm-pc-gen
 
-cd /home/DAVIDSON/allandolfi/attpc_unpaired_trans
+cd /home/DAVIDSON/mili/attpc_dpm
 # train generator
- python -m train.train_gen
+python train_gen.py
