@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 
 losses = []
 itters = []
+log_losses = []
 
 # Arguments
 parser = argparse.ArgumentParser()
@@ -160,6 +161,7 @@ def train(it):
 
     if((it % 50*THOUSAND) == 0):
         losses.append(loss.item())
+        log_losses.append(math.log(loss.item()))
         itters.append(it)
     
     writer.add_scalar('train/loss', loss, it)
@@ -250,11 +252,13 @@ except KeyboardInterrupt:
 # print(losses)
 
 plt.plot(itters, losses, label="loss")
-plt.title("Loss vs. Itterations for Mg22 dataset")
-plt.xlabel("Itterations")
-plt.ylabel("loss")
+plt.plot(itters, log_losses, label="log(loss)")
+plt.title("Loss and Log Loss vs. Iterations")
+plt.xlabel("Iterations")
+plt.ylabel("Loss")
 plt.legend()
-plt.savefig('plot_loss.png')
+plt.savefig('plot_loss_and_log_loss.png')
 plt.show()
+
 
 print("END")
