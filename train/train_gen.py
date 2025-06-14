@@ -18,6 +18,8 @@ import matplotlib.pyplot as plt
 
 losses = []
 itters = []
+val_losses = []
+val_itters = []
 
 # Arguments
 parser = argparse.ArgumentParser()
@@ -170,11 +172,23 @@ def train(it):
     writer.flush()
 
 def validate_inspect(it):
-    z = torch.randn([args.num_samples, args.latent_dim]).to(args.device)
-    x = model.sample(z, args.sample_num_points, flexibility=args.flexibility) #, truncate_std=args.truncate_std)
-    writer.add_mesh('val/pointcloud', x, global_step=it)
-    writer.flush()
-    logger.info('[Inspect] Generating samples...')
+    model.eval()
+    total_loss = 0.0
+    count = 0
+
+    with torch.no_grad():
+        for batch in val_loader:
+            x = batch[0].to(args.device)
+            loss = model.get_loss(x, kl_weight=args.kl_weight)
+            total_loss += loss.item()
+            count += 1
+
+    avg_val_loss = total_loss / count
+    val_losses.append(avg_val_loss)
+    val_itters.append(it)
+
+    logger.info(f"[Validation] Iter {it} | Avg Val Loss: {avg_val_loss:.6f}")
+    writer.add_scalar('val/loss', avg_val_loss, it)
 
 def test(it):
     ref_pcs = []
@@ -273,6 +287,27 @@ smoothed_losses = moving_average(filtered_losses, window_size=window_size)
 smoothed_iters = filtered_iters[len(filtered_iters) - len(smoothed_losses):]
 
 
+# validation loss
+
+val_loss_array = np.array(val_losses)
+val_iter_array = np.array(val_itters)
+
+q1_val = np.percentile(val_loss_array, 25)
+q3_val = np.percentile(val_loss_array, 75)
+iqr_val = q3_val - q1_val
+
+lower_val = q1_val - 1.5 * iqr_val
+upper_val = q3_val + 1.5 * iqr_val
+
+val_mask = (val_loss_array >= lower_val) & (val_loss_array <= upper_val)
+filtered_val_losses = val_loss_array[val_mask]
+filtered_val_iters = val_iter_array[val_mask]
+
+smoothed_val_losses = moving_average(filtered_val_losses, window_size=window_size)
+smoothed_val_iters = filtered_val_iters[len(filtered_val_iters) - len(smoothed_val_losses):]
+
+
+
 # print(itters)
 # print(losses)
 
@@ -290,3 +325,22 @@ plt.ylabel("Loss (log scale)")
 plt.legend()
 plt.savefig("plot_loss.png")
 plt.show()
+
+
+plt.figure()
+
+plt.plot(val_iter_array, val_loss_array, label="raw val loss", color='gray', alpha=0.3)
+plt.plot(smoothed_val_iters, smoothed_val_losses, label="smoothed val (no outliers)", color='green', linewidth=2)
+plt.yscale("log")
+plt.xlim(min(smoothed_val_iters), max(smoothed_val_iters))
+plt.ylim(min(smoothed_val_losses), max(smoothed_val_losses))
+
+plt.title("Validation Loss vs. Iterations (Smoothed)")
+plt.xlabel("Iterations")
+plt.ylabel("Validation Loss (log scale)")
+plt.legend()
+plt.savefig("plot_val_loss.png")
+plt.show()
+
+
+
