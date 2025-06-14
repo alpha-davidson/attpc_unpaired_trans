@@ -18,7 +18,6 @@ import matplotlib.pyplot as plt
 
 losses = []
 itters = []
-log_losses = []
 
 # Arguments
 parser = argparse.ArgumentParser()
@@ -161,7 +160,6 @@ def train(it):
 
     if((it % 50*THOUSAND) == 0):
         losses.append(loss.item())
-        log_losses.append(math.log(loss.item()))
         itters.append(it)
     
     writer.add_scalar('train/loss', loss, it)
@@ -248,17 +246,47 @@ try:
 except KeyboardInterrupt:
     logger.info('Terminating...')
 
+
+# Outlier filtering
+loss_array = np.array(losses)
+iter_array = np.array(itters)
+
+q1 = np.percentile(loss_array, 25)
+q3 = np.percentile(loss_array, 75)
+iqr = q3 - q1
+
+lower_bound = q1 - 1.5 * iqr
+upper_bound = q3 + 1.5 * iqr
+
+mask = (loss_array >= lower_bound) & (loss_array <= upper_bound)
+filtered_losses = loss_array[mask]
+filtered_iters = iter_array[mask]
+
+# moving average smoothing
+def moving_average(data, window_size):
+    if len(data) < window_size:
+        return data
+    return np.convolve(data, np.ones(window_size)/window_size, mode='valid')
+
+window_size = 21
+smoothed_losses = moving_average(filtered_losses, window_size=window_size)
+smoothed_iters = filtered_iters[len(filtered_iters) - len(smoothed_losses):]
+
+
 # print(itters)
 # print(losses)
 
-plt.plot(itters, losses, label="loss")
-plt.plot(itters, log_losses, label="log(loss)")
-plt.title("Loss and Log Loss vs. Iterations")
+plt.figure()
+
+plt.plot(iter_array, loss_array, label="raw loss", color='gray', alpha=0.3)
+plt.plot(smoothed_iters, smoothed_losses, label="smoothed (no outliers)", color='blue', linewidth=2)
+plt.yscale("log")
+plt.xlim(min(smoothed_iters), max(smoothed_iters))
+plt.ylim(min(smoothed_losses), max(smoothed_losses))
+
+plt.title("Loss vs. Iterations (Smoothed)")
 plt.xlabel("Iterations")
-plt.ylabel("Loss")
+plt.ylabel("Loss (log scale)")
 plt.legend()
-plt.savefig('plot_loss_and_log_loss.png')
+plt.savefig("plot_loss.png")
 plt.show()
-
-
-print("END")

@@ -8,5 +8,5 @@
 
 cd /home/DAVIDSON/allandolfi/attpc_unpaired_trans
 # train generator
-python -m train.train_gen --dataset_path data/toy/rectangle_noisy.npy --max_iters 5000
+python -m train.train_gen --dataset_path data/Fission/fission_data/Fission_exp.npy --max_iters 10000
 
