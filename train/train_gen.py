@@ -269,8 +269,8 @@ q1 = np.percentile(loss_array, 25)
 q3 = np.percentile(loss_array, 75)
 iqr = q3 - q1
 
-lower_bound = q1 - 1.5 * iqr
-upper_bound = q3 + 1.5 * iqr
+lower_bound = q1 - 10 * iqr
+upper_bound = q3 + 10 * iqr
 
 mask = (loss_array >= lower_bound) & (loss_array <= upper_bound)
 filtered_losses = loss_array[mask]
@@ -296,8 +296,8 @@ q1_val = np.percentile(val_loss_array, 25)
 q3_val = np.percentile(val_loss_array, 75)
 iqr_val = q3_val - q1_val
 
-lower_val = q1_val - 1.5 * iqr_val
-upper_val = q3_val + 1.5 * iqr_val
+lower_val = q1_val - 10 * iqr_val
+upper_val = q3_val + 10 * iqr_val
 
 val_mask = (val_loss_array >= lower_val) & (val_loss_array <= upper_val)
 filtered_val_losses = val_loss_array[val_mask]
