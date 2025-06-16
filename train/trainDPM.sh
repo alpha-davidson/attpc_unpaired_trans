@@ -8,5 +8,5 @@
 
 cd /home/DAVIDSON/allandolfi/attpc_unpaired_trans
 # train generator
-python -m train.train_gen --dataset_path data/Fission/fission_data/Fission_sim.npy --max_iters 10000 --val_freq 100 --tag FissionSim
+python -m train.train_gen --dataset_path data/Fission/fission_data/Fission_exp.npy --max_iters 10000 --val_freq 100 --tag FissionExp --lr 1e-5
 
