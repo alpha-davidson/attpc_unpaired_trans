@@ -7,8 +7,7 @@
 2. Create an environment by running
 
 ```shell
-conda env create -f env.yml
-conda activate dpm-pc-gen
+sbatch setup_env.sh
 ```
 
 ## Datasets
@@ -16,9 +15,10 @@ We provided data processing notebooks inside the [data](data/) folder. Sample to
 
 ## Training
 We need to first train two diffusion models in each domain in preparation for translation. Remember to change the dataset_path inside [train_gen.py](train/train_gen.py) to match the dataset.
+
 ```shell
-cd train
-sbatch trainDPM.sh
+conda activate dpm-pc-gen
+sbatch train/trainDPM.sh
 ```
 
 After training, you can find the checkpoints of models inside logs_gen folder. Paste the desired checkpoint path to [CycleDiffusion.ipynb](CycleDiffusion) notebook. Then follows the instruction inside the notebook to start translation.
