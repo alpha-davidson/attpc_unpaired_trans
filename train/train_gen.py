@@ -261,64 +261,33 @@ except KeyboardInterrupt:
     logger.info('Terminating...')
 
 
-# Outlier filtering
-loss_array = np.array(losses)
-iter_array = np.array(itters)
-
-q1 = np.percentile(loss_array, 25)
-q3 = np.percentile(loss_array, 75)
-iqr = q3 - q1
-
-lower_bound = q1 - 10 * iqr
-upper_bound = q3 + 10 * iqr
-
-mask = (loss_array >= lower_bound) & (loss_array <= upper_bound)
-filtered_losses = loss_array[mask]
-filtered_iters = iter_array[mask]
-
 # moving average smoothing
 def moving_average(data, window_size):
     if len(data) < window_size:
         return data
     return np.convolve(data, np.ones(window_size)/window_size, mode='valid')
 
+loss_array = np.array(losses)
+iter_array = np.array(itters)
+
 window_size = 21
-smoothed_losses = moving_average(filtered_losses, window_size=window_size)
-smoothed_iters = filtered_iters[len(filtered_iters) - len(smoothed_losses):]
+smoothed_losses = moving_average(loss_array, window_size=window_size)
+smoothed_iters = iter_array[len(iter_array) - len(smoothed_losses):]
 
-
-# validation loss
-
+# Validation loss
 val_loss_array = np.array(val_losses)
 val_iter_array = np.array(val_itters)
 
-q1_val = np.percentile(val_loss_array, 25)
-q3_val = np.percentile(val_loss_array, 75)
-iqr_val = q3_val - q1_val
+smoothed_val_losses = moving_average(val_loss_array, window_size=window_size)
+smoothed_val_iters = val_iter_array[len(val_iter_array) - len(smoothed_val_losses):]
 
-lower_val = q1_val - 10 * iqr_val
-upper_val = q3_val + 10 * iqr_val
-
-val_mask = (val_loss_array >= lower_val) & (val_loss_array <= upper_val)
-filtered_val_losses = val_loss_array[val_mask]
-filtered_val_iters = val_iter_array[val_mask]
-
-smoothed_val_losses = moving_average(filtered_val_losses, window_size=window_size)
-smoothed_val_iters = filtered_val_iters[len(filtered_val_iters) - len(smoothed_val_losses):]
-
-
-
-# print(itters)
-# print(losses)
-
+# Plotting
 plt.figure()
-
 plt.plot(iter_array, loss_array, label="raw loss", color='gray', alpha=0.3)
-plt.plot(smoothed_iters, smoothed_losses, label="smoothed (no outliers)", color='blue', linewidth=2)
+plt.plot(smoothed_iters, smoothed_losses, label="smoothed", color='blue', linewidth=2)
 plt.yscale("log")
 plt.xlim(min(smoothed_iters), max(smoothed_iters))
 plt.ylim(min(smoothed_losses), max(smoothed_losses))
-
 plt.title("Loss vs. Iterations (Smoothed)")
 plt.xlabel("Iterations")
 plt.ylabel("Loss (log scale)")
@@ -326,21 +295,17 @@ plt.legend()
 plt.savefig("plot_loss.png")
 plt.show()
 
-
 plt.figure()
-
 plt.plot(val_iter_array, val_loss_array, label="raw val loss", color='gray', alpha=0.3)
-plt.plot(smoothed_val_iters, smoothed_val_losses, label="smoothed val (no outliers)", color='green', linewidth=2)
+plt.plot(smoothed_val_iters, smoothed_val_losses, label="smoothed val", color='green', linewidth=2)
 plt.yscale("log")
 plt.xlim(min(smoothed_val_iters), max(smoothed_val_iters))
 plt.ylim(min(smoothed_val_losses), max(smoothed_val_losses))
-
 plt.title("Validation Loss vs. Iterations (Smoothed)")
 plt.xlabel("Iterations")
 plt.ylabel("Validation Loss (log scale)")
 plt.legend()
 plt.savefig("plot_val_loss.png")
 plt.show()
-
 
 
