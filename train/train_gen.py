@@ -283,29 +283,27 @@ smoothed_val_iters = val_iter_array[len(val_iter_array) - len(smoothed_val_losse
 
 # Plotting
 plt.figure()
+
+# Raw losses
 plt.plot(iter_array, loss_array, label="raw loss", color='gray', alpha=0.3)
-plt.plot(smoothed_iters, smoothed_losses, label="smoothed", color='blue', linewidth=2)
+plt.plot(val_iter_array, val_loss_array, label="raw val loss", color='gray', alpha=0.3, linestyle='--')
+
+# Smoothed losses
+plt.plot(smoothed_iters, smoothed_losses, label="smoothed loss", color='blue', linewidth=2)
+plt.plot(smoothed_val_iters, smoothed_val_losses, label="smoothed val loss", color='green', linewidth=2)
+
 plt.yscale("log")
-plt.xlim(min(smoothed_iters), max(smoothed_iters))
-plt.ylim(min(smoothed_losses), max(smoothed_losses))
-plt.title("Loss vs. Iterations (Smoothed)")
+combined_min_iter = min(min(smoothed_iters), min(smoothed_val_iters))
+combined_max_iter = max(max(smoothed_iters), max(smoothed_val_iters))
+plt.xlim(combined_min_iter, combined_max_iter)
+
+combined_min_loss = min(min(smoothed_losses), min(smoothed_val_losses))
+combined_max_loss = max(max(smoothed_losses), max(smoothed_val_losses))
+plt.ylim(combined_min_loss, combined_max_loss)
+
+plt.title("Training and Validation Loss vs. Iterations (Smoothed)")
 plt.xlabel("Iterations")
 plt.ylabel("Loss (log scale)")
 plt.legend()
 plt.savefig("plot_loss.png")
 plt.show()
-
-plt.figure()
-plt.plot(val_iter_array, val_loss_array, label="raw val loss", color='gray', alpha=0.3)
-plt.plot(smoothed_val_iters, smoothed_val_losses, label="smoothed val", color='green', linewidth=2)
-plt.yscale("log")
-plt.xlim(min(smoothed_val_iters), max(smoothed_val_iters))
-plt.ylim(min(smoothed_val_losses), max(smoothed_val_losses))
-plt.title("Validation Loss vs. Iterations (Smoothed)")
-plt.xlabel("Iterations")
-plt.ylabel("Validation Loss (log scale)")
-plt.legend()
-plt.savefig("plot_val_loss.png")
-plt.show()
-
-
