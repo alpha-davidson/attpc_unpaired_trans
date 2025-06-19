@@ -298,8 +298,7 @@ combined_max_iter = max(max(smoothed_iters), max(smoothed_val_iters))
 plt.xlim(combined_min_iter, combined_max_iter)
 
 combined_min_loss = min(min(smoothed_losses), min(smoothed_val_losses))
-combined_max_loss = max(max(smoothed_losses), max(smoothed_val_losses))
-plt.ylim(combined_min_loss, combined_max_loss)
+plt.ylim(combined_min_loss, 100)
 
 plt.title("Training and Validation Loss vs. Iterations (Smoothed)")
 plt.xlabel("Iterations")
