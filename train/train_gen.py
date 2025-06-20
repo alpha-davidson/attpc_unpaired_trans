@@ -92,6 +92,8 @@ data = np.load(args.dataset_path)
 data = torch.from_numpy(data).float()
 
 n_train = int(len(data) * args.train_ratio)
+steps_per_epoch = math.ceil(n_train / args.train_batch_size)
+
 
 # Split the data
 train_data = data[:n_train]
@@ -281,6 +283,14 @@ val_iter_array = np.array(val_itters)
 smoothed_val_losses = moving_average(val_loss_array, window_size=window_size)
 smoothed_val_iters = val_iter_array[len(val_iter_array) - len(smoothed_val_losses):]
 
+# Convert iterations to epochs
+epoch_array = np.array(itters) / steps_per_epoch
+val_epoch_array = np.array(val_itters) / steps_per_epoch
+
+smoothed_epoch_array = epoch_array[len(epoch_array) - len(smoothed_losses):]
+smoothed_val_epoch_array = val_epoch_array[len(val_epoch_array) - len(smoothed_val_losses):]
+
+
 # Plotting
 plt.figure()
 
@@ -310,4 +320,28 @@ plt.xlabel("Iterations")
 plt.ylabel("Loss (log scale)")
 plt.legend()
 plt.savefig("plot_loss.png")
+plt.show()
+
+# Plotting: Epochs vs. Loss
+plt.figure()
+
+plt.plot(epoch_array, loss_array, label="raw loss", color='gray', alpha=0.3)
+plt.plot(val_epoch_array, val_loss_array, label="raw val loss", color='gray', alpha=0.3, linestyle='--')
+
+plt.plot(smoothed_epoch_array, smoothed_losses, label="smoothed loss", color='blue', linewidth=2)
+plt.plot(smoothed_val_epoch_array, smoothed_val_losses, label="smoothed val loss", color='green', linewidth=2)
+
+plt.yscale("log")
+plt.xlim(min(smoothed_epoch_array), max(smoothed_val_epoch_array))
+
+if combined_max_loss > 100:
+    plt.ylim(combined_min_loss, 100)
+else:
+    plt.ylim(combined_min_loss, combined_max_loss)
+
+plt.title("Training and Validation Loss vs. Epochs (Smoothed)")
+plt.xlabel("Epochs")
+plt.ylabel("Loss (log scale)")
+plt.legend()
+plt.savefig("plot_loss_epochs.png")
 plt.show()
