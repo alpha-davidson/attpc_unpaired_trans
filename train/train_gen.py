@@ -157,6 +157,12 @@ def train(it):
     orig_grad_norm = clip_grad_norm_(model.parameters(), args.max_grad_norm)
     optimizer.step()
     scheduler.step()
+    
+    global prev_lr
+    current_lr = optimizer.param_groups[0]['lr']
+    if current_lr != prev_lr:
+        lr_change_log.append((it, prev_lr, current_lr))
+        prev_lr = current_lr
 
     logger.info('[Train] Iter %04d | Loss %.6f | Grad %.4f | KLWeight %.4f' % (
         it, loss.item(), orig_grad_norm, kl_weight
@@ -243,6 +249,8 @@ def test(it):
     logger.info('[Test] JsnShnDis | %.6f ' % (results['jsd']))
 
 # Main loop
+lr_change_log = []
+prev_lr = args.lr
 logger.info('Start training...')
 try:
     it = 1
@@ -345,3 +353,7 @@ plt.ylabel("Loss (log scale)")
 plt.legend()
 plt.savefig("plot_loss_epochs.png")
 plt.show()
+
+with open("lr_changes.txt", "w") as f:
+    for (iter_num, old_lr, new_lr) in lr_change_log:
+        f.write(f"Iter {iter_num}: {old_lr:.6e} → {new_lr:.6e}\n")
