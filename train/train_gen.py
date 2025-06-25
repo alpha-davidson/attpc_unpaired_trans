@@ -290,7 +290,6 @@ def test(it):
 lr_change_log = []
 prev_lr = args.lr
 logger.info('Start training...')
-logger.info('Start training...')
 
 try:
     it = start_it
