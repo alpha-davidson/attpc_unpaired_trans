@@ -148,7 +148,8 @@ scheduler = get_linear_scheduler(
     end_lr=args.end_lr
 )
 
-checkpoint_path = os.path.join(args.log_root if args.logging else '.', 'resume_ckpt.pt')
+checkpoint_filename = f"resume_ckpt_{args.tag}.pt" if args.tag else "resume_ckpt.pt"
+checkpoint_path = os.path.join(args.log_root if args.logging else '.', checkpoint_filename)
 start_it = 1
 
 # Resume if checkpoint exists
