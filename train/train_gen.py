@@ -153,6 +153,7 @@ checkpoint_path = os.path.join(args.log_root if args.logging else '.', checkpoin
 start_it = 1
 
 # Resume if checkpoint exists
+resuming = False
 if os.path.exists(checkpoint_path):
     logger.info(f"Resuming from checkpoint: {checkpoint_path}")
     ckpt = torch.load(checkpoint_path, map_location=args.device)
@@ -166,11 +167,13 @@ if os.path.exists(checkpoint_path):
     val_itters = ckpt['val_itters']
     lr_change_log = ckpt.get('lr_change_log', [])
     prev_lr = optimizer.param_groups[0]['lr']
+    resuming = True
     logger.info(f"Resumed at iteration {start_it}")
-    
 else:
     start_it = 1
     prev_lr = args.lr
+    lr_change_log = []
+
 
 # Train, validate and test
 def train(it):
@@ -360,6 +363,7 @@ smoothed_val_iters = val_iter_array[len(val_iter_array) - len(smoothed_val_losse
 # Convert iterations to epochs
 epoch_array = np.array(itters) / steps_per_epoch
 val_epoch_array = np.array(val_itters) / steps_per_epoch
+start_epoch = start_it / steps_per_epoch
 
 smoothed_epoch_array = epoch_array[len(epoch_array) - len(smoothed_losses):]
 smoothed_val_epoch_array = val_epoch_array[len(val_epoch_array) - len(smoothed_val_losses):]
@@ -417,13 +421,18 @@ else:
 plt.title(f"Training and Validation Loss vs. Epochs (Smoothed) - {args.tag}")
 plt.xlabel("Epochs")
 plt.ylabel("Loss (log scale)")
-plt.axvline(x=start_it, color='red', linestyle='--', label='Resumed')
+plt.axvline(x=start_epoch, color='red', linestyle='--', label='Resumed')
 plt.legend()
 plt.savefig(get_unique_filename(plots_dir, "plot_loss_epochs.png"))
 plt.show()
 
-lr_changes_path = os.path.join(args.log_root, "lr_changes.txt")
-with open(lr_changes_path, "w") as f:
+tag_suffix = f"_{args.tag}" if args.tag else ""
+lr_changes_path = os.path.join(args.log_root, f"lr_changes{tag_suffix}.txt")
+mode = "a" if resuming else "w"
+with open(lr_changes_path, mode) as f:
+    if not resuming:
+        f.write("Learning Rate Changes Log\n")
+        f.write("=" * 30 + "\n")
     for (iter_num, old_lr, new_lr) in lr_change_log:
         epoch_num = iter_num / steps_per_epoch
         f.write(f"Iter {iter_num} (Epoch {epoch_num:.2f}): {old_lr:.6e} → {new_lr:.6e}\n")
