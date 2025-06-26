@@ -174,6 +174,7 @@ else:
 
 # Train, validate and test
 def train(it):
+    global losses, itters
     # Load data
     batch = next(train_iter)
     x = batch[0].to(args.device)
@@ -218,6 +219,7 @@ def train(it):
     writer.flush()
 
 def validate_inspect(it):
+    global val_losses, val_itters
     model.eval()
     total_loss = 0.0
     count = 0
@@ -349,8 +351,8 @@ smoothed_losses = moving_average(loss_array, window_size=window_size)
 smoothed_iters = iter_array[len(iter_array) - len(smoothed_losses):]
 
 # Validation loss
-val_loss_array = np.array([v for v, i in zip(val_losses, val_itters) if i >= start_it])
-val_iter_array = np.array([i for i in val_itters if i >= start_it])
+val_loss_array = np.array(val_losses)
+val_iter_array = np.array(val_itters)
 
 smoothed_val_losses = moving_average(val_loss_array, window_size=window_size)
 smoothed_val_iters = val_iter_array[len(val_iter_array) - len(smoothed_val_losses):]
@@ -382,14 +384,15 @@ plt.xlim(combined_min_iter, combined_max_iter)
 combined_min_loss = min(min(smoothed_losses), min(smoothed_val_losses))
 combined_max_loss = max(max(smoothed_losses), max(smoothed_val_losses))
 
-if combined_max_loss > 80:
-    plt.ylim(combined_min_loss, 80)
+if combined_max_loss > 70:
+    plt.ylim(combined_min_loss, 70)
 else:
     plt.ylim(combined_min_loss, combined_max_loss)
 
 plt.title(f"Training and Validation Loss vs. Iterations (Smoothed) - {args.tag}")
 plt.xlabel("Iterations")
 plt.ylabel("Loss (log scale)")
+plt.axvline(x=start_it, color='red', linestyle='--', label='Resumed')
 plt.legend()
 plt.savefig(get_unique_filename(plots_dir, "plot_loss.png"))
 plt.show()
@@ -406,14 +409,15 @@ plt.plot(smoothed_val_epoch_array, smoothed_val_losses, label="smoothed val loss
 plt.yscale("log")
 plt.xlim(min(smoothed_epoch_array), max(smoothed_val_epoch_array))
 
-if combined_max_loss > 80:
-    plt.ylim(combined_min_loss, 80)
+if combined_max_loss > 70:
+    plt.ylim(combined_min_loss, 70)
 else:
     plt.ylim(combined_min_loss, combined_max_loss)
 
 plt.title(f"Training and Validation Loss vs. Epochs (Smoothed) - {args.tag}")
 plt.xlabel("Epochs")
 plt.ylabel("Loss (log scale)")
+plt.axvline(x=start_it, color='red', linestyle='--', label='Resumed')
 plt.legend()
 plt.savefig(get_unique_filename(plots_dir, "plot_loss_epochs.png"))
 plt.show()
