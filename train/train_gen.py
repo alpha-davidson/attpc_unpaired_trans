@@ -349,8 +349,8 @@ smoothed_losses = moving_average(loss_array, window_size=window_size)
 smoothed_iters = iter_array[len(iter_array) - len(smoothed_losses):]
 
 # Validation loss
-val_loss_array = np.array(val_losses)
-val_iter_array = np.array(val_itters)
+val_loss_array = np.array([v for v, i in zip(val_losses, val_itters) if i >= start_it])
+val_iter_array = np.array([i for i in val_itters if i >= start_it])
 
 smoothed_val_losses = moving_average(val_loss_array, window_size=window_size)
 smoothed_val_iters = val_iter_array[len(val_iter_array) - len(smoothed_val_losses):]
@@ -387,7 +387,7 @@ if combined_max_loss > 80:
 else:
     plt.ylim(combined_min_loss, combined_max_loss)
 
-plt.title("Training and Validation Loss vs. Iterations (Smoothed)")
+plt.title(f"Training and Validation Loss vs. Iterations (Smoothed) - {args.tag}")
 plt.xlabel("Iterations")
 plt.ylabel("Loss (log scale)")
 plt.legend()
@@ -411,7 +411,7 @@ if combined_max_loss > 80:
 else:
     plt.ylim(combined_min_loss, combined_max_loss)
 
-plt.title("Training and Validation Loss vs. Epochs (Smoothed)")
+plt.title(f"Training and Validation Loss vs. Epochs (Smoothed) - {args.tag}")
 plt.xlabel("Epochs")
 plt.ylabel("Loss (log scale)")
 plt.legend()
