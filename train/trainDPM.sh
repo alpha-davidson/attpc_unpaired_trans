@@ -4,8 +4,9 @@
 #SBATCH --mem 64G
 #SBATCH --gpus 1
 
-source /opt/conda/bin/activate dpm-pc-gen
+# source /opt/conda/bin/activate dpm-pc-gen
 
+cd /home/DAVIDSON/<yournamehere>/attpc_unpaired_trans
 # train generator
-python -m train.train_gen --dataset_path data/Fission/fission_data/Fission_sim.npy --max_iters 1000000 --val_freq 100 --tag FissionSim --lr 1e-3 --end_lr 1e-6
+python -m train.train_gen --dataset_path ## add the dataset path, as well as change hyperparameters
 
