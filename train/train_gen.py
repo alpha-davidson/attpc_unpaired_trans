@@ -427,12 +427,22 @@ plt.savefig(get_unique_filename(plots_dir, "plot_loss_epochs.png"))
 plt.show()
 
 tag_suffix = f"_{args.tag}" if args.tag else ""
-lr_changes_path = os.path.join(args.log_root, f"lr_changes{tag_suffix}.txt")
+lr_val_log_path = os.path.join(args.log_root, f"lr_val_log{tag_suffix}.txt")
 mode = "a" if resuming else "w"
-with open(lr_changes_path, mode) as f:
+
+with open(lr_val_log_path, mode) as f:
     if not resuming:
         f.write("Learning Rate Changes Log\n")
+        f.write("=" * 30 + "\n\n")
+        f.write("Validation Loss Log\n")
         f.write("=" * 30 + "\n")
+
     for (iter_num, old_lr, new_lr) in lr_change_log:
         epoch_num = iter_num / steps_per_epoch
-        f.write(f"Iter {iter_num} (Epoch {epoch_num:.2f}): {old_lr:.6e} → {new_lr:.6e}\n")
+        f.write(f"Iter {iter_num} (Epoch {epoch_num:.2f}): LR {old_lr:.6e} → {new_lr:.6e}\n")
+
+    f.write("\n")
+
+    for val_iter, val_loss in zip(val_itters, val_losses):
+        val_epoch = val_iter / steps_per_epoch
+        f.write(f"Iter {val_iter} (Epoch {val_epoch:.2f}): Val Loss {val_loss:.6f}\n")
