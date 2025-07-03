@@ -4,4 +4,4 @@
 #SBATCH --mem 32g
 
 source /opt/conda/bin/activate dpm-pc-gen
-jupyter lab --port=1235 --ip=0.0.0.0
+jupyter lab --port=9876 --ip="0.0.0.0" --no-browser
