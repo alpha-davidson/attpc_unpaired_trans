@@ -28,11 +28,9 @@ def get_unique_filename(directory, base_filename):
 
 epoch_losses = []
 epoch_val_losses = []
+val_epochs = [] 
 epoch_numbers = []
-val_losses = []
-val_itters = []
-losses = []
-itters = []
+lr_change_log = []
 
 # Arguments
 parser = argparse.ArgumentParser()
@@ -142,6 +140,7 @@ if os.path.exists(checkpoint_path):
     epoch_losses = ckpt.get('losses', [])
     epoch_val_losses = ckpt.get('val_losses', [])
     epoch_numbers = ckpt.get('epoch_numbers', [])
+    val_epochs = ckpt.get('val_epochs', [])  
     lr_change_log = ckpt.get('lr_change_log', [])
     prev_lr = optimizer.param_groups[0]['lr']
     resuming = True
@@ -161,12 +160,9 @@ def validate_inspect(epoch):
             total_loss += loss.item()
             count += 1
     avg_val_loss = total_loss / count
-    val_losses.append(avg_val_loss)
-    val_itters.append(epoch)
     logger.info(f"[Validation] Epoch {epoch} | Avg Val Loss: {avg_val_loss:.6f}")
     writer.add_scalar('val/loss', avg_val_loss, epoch)
-
-lr_change_log = []
+    return avg_val_loss
 
 logger.info('Start training...')
 
@@ -210,9 +206,10 @@ try:
         writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], epoch)
         writer.add_scalar('train/grad_norm', orig_grad_norm, epoch)
 
-        if epoch % args.val_freq == 0 or epoch == args.max_epochs:
-            validate_inspect(epoch)
-            epoch_val_losses.append(val_losses[-1])
+        if epoch % 20 == 0 or epoch == args.max_epochs:
+            val_loss = validate_inspect(epoch)
+            epoch_val_losses.append(val_loss)
+            val_epochs.append(epoch)
 
             opt_states = {
                 'optimizer': optimizer.state_dict(),
@@ -227,8 +224,10 @@ try:
                 'losses': epoch_losses,
                 'val_losses': epoch_val_losses,
                 'epoch_numbers': epoch_numbers,
+                'val_epochs': val_epochs,
                 'lr_change_log': lr_change_log,
             }, checkpoint_path)
+
 
 except KeyboardInterrupt:
     logger.info('Training interrupted. Saving checkpoint...')
@@ -258,13 +257,14 @@ smoothed_losses = moving_average(loss_array, window_size=window_size)
 smoothed_epochs = epoch_array[len(epoch_array) - len(smoothed_losses):]
 
 val_loss_array = np.array(epoch_val_losses)
+val_epoch_array = np.array(val_epochs)
 smoothed_val_losses = moving_average(val_loss_array, window_size=window_size)
-smoothed_val_epochs = epoch_array[len(epoch_array) - len(smoothed_val_losses):]
+smoothed_val_epochs = val_epoch_array[len(val_epoch_array) - len(smoothed_val_losses):]
 
 plt.figure()
 
 plt.plot(epoch_array, loss_array, label="raw train loss", color='gray', alpha=0.3)
-plt.plot(epoch_array, val_loss_array, label="raw val loss", color='gray', alpha=0.3, linestyle='--')
+plt.plot(val_epoch_array, val_loss_array, label="raw val loss", color='gray', alpha=0.3, linestyle='--')
 
 plt.plot(smoothed_epochs, smoothed_losses, label="smoothed train loss", color='blue', linewidth=2)
 plt.plot(smoothed_val_epochs, smoothed_val_losses, label="smoothed val loss", color='green', linewidth=2)
