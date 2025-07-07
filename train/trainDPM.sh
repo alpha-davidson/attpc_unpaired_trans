@@ -6,8 +6,7 @@
 
 # source /opt/conda/bin/activate dpm-pc-gen
 
-cd /home/DAVIDSON/<yournamehere>/attpc_unpaired_trans
+cd ../
 # train generator
-python -m train.train_gen # Add arguments like --max_iters, --lr, --dataset_path, etc.
-
+python -m train.train_gen --dataset_path ## add the dataset path, as well as change hyperparameters
 
