@@ -16,6 +16,15 @@ from models.flow import add_spectral_norm, spectral_norm_power_iteration
 from evaluation import *
 import matplotlib.pyplot as plt
 
+def get_unique_filename(directory, base_filename):
+    base, ext = os.path.splitext(base_filename)
+    candidate = os.path.join(directory, base_filename)
+    i = 1
+    while os.path.exists(candidate):
+        candidate = os.path.join(directory, f"{base}{i}{ext}")
+        i += 1
+    return candidate
+
 losses = []
 itters = []
 val_losses = []
@@ -71,7 +80,9 @@ seed_all(args.seed)
 
 # Logging
 if args.logging:
-    log_dir = get_new_log_dir(args.log_root, prefix='GEN_Mg22_4D_', postfix='_' + args.tag if args.tag is not None else '')
+    assert args.tag is not None, "You must provide a --tag to name the log directory."
+    log_dir = os.path.join(args.log_root, f"GEN_{args.tag}")
+    os.makedirs(log_dir, exist_ok=True)
     logger = get_logger('train', log_dir)
     writer = torch.utils.tensorboard.SummaryWriter(log_dir)
     ckpt_mgr = CheckpointManager(log_dir)
@@ -81,6 +92,9 @@ else:
     writer = BlackHole()
     ckpt_mgr = BlackHole()
 logger.info(args)
+
+plots_dir = os.path.join(args.log_root, 'plots')
+os.makedirs(plots_dir, exist_ok=True)
 
 # Datasets and loaders
 logger.info('Loading datasets...')
@@ -134,8 +148,36 @@ scheduler = get_linear_scheduler(
     end_lr=args.end_lr
 )
 
+checkpoint_filename = f"resume_ckpt_{args.tag}.pt" if args.tag else "resume_ckpt.pt"
+checkpoint_path = os.path.join(args.log_root if args.logging else '.', checkpoint_filename)
+start_it = 1
+
+# Resume if checkpoint exists
+resuming = False
+if os.path.exists(checkpoint_path):
+    logger.info(f"Resuming from checkpoint: {checkpoint_path}")
+    ckpt = torch.load(checkpoint_path, map_location=args.device)
+    model.load_state_dict(ckpt['model_state'])
+    optimizer.load_state_dict(ckpt['optimizer_state'])
+    scheduler.load_state_dict(ckpt['scheduler_state'])
+    start_it = ckpt['iteration'] + 1
+    losses = ckpt['losses']
+    val_losses = ckpt['val_losses']
+    itters = ckpt['itters']
+    val_itters = ckpt['val_itters']
+    lr_change_log = ckpt.get('lr_change_log', [])
+    prev_lr = optimizer.param_groups[0]['lr']
+    resuming = True
+    logger.info(f"Resumed at iteration {start_it}")
+else:
+    start_it = 1
+    prev_lr = args.lr
+    lr_change_log = []
+
+
 # Train, validate and test
 def train(it):
+    global losses, itters
     # Load data
     batch = next(train_iter)
     x = batch[0].to(args.device)
@@ -180,6 +222,7 @@ def train(it):
     writer.flush()
 
 def validate_inspect(it):
+    global val_losses, val_itters
     model.eval()
     total_loss = 0.0
     count = 0
@@ -252,10 +295,12 @@ def test(it):
 lr_change_log = []
 prev_lr = args.lr
 logger.info('Start training...')
+
 try:
-    it = 1
+    it = start_it
     while it <= args.max_iters:
         train(it)
+
         if it % args.val_freq == 0 or it == args.max_iters:
             validate_inspect(it)
             opt_states = {
@@ -263,12 +308,36 @@ try:
                 'scheduler': scheduler.state_dict(),
             }
             ckpt_mgr.save(model, args, 0, others=opt_states, step=it)
-        # if it % args.test_freq == 0 or it == args.max_iters:
-        #     test(it)
+
+            # Save training state to resume
+            torch.save({
+                'model_state': model.state_dict(),
+                'optimizer_state': optimizer.state_dict(),
+                'scheduler_state': scheduler.state_dict(),
+                'iteration': it,
+                'losses': losses,
+                'val_losses': val_losses,
+                'itters': itters,
+                'val_itters': val_itters,
+                'lr_change_log': lr_change_log,
+            }, checkpoint_path)
+
         it += 1
 
 except KeyboardInterrupt:
-    logger.info('Terminating...')
+    logger.info('Training interrupted. Saving checkpoint...')
+    torch.save({
+        'model_state': model.state_dict(),
+        'optimizer_state': optimizer.state_dict(),
+        'scheduler_state': scheduler.state_dict(),
+        'iteration': it,
+        'losses': losses,
+        'val_losses': val_losses,
+        'itters': itters,
+        'val_itters': val_itters,
+        'lr_change_log': lr_change_log,
+    }, checkpoint_path)
+    logger.info('Checkpoint saved.')
 
 
 # moving average smoothing
@@ -294,6 +363,7 @@ smoothed_val_iters = val_iter_array[len(val_iter_array) - len(smoothed_val_losse
 # Convert iterations to epochs
 epoch_array = np.array(itters) / steps_per_epoch
 val_epoch_array = np.array(val_itters) / steps_per_epoch
+start_epoch = start_it / steps_per_epoch
 
 smoothed_epoch_array = epoch_array[len(epoch_array) - len(smoothed_losses):]
 smoothed_val_epoch_array = val_epoch_array[len(val_epoch_array) - len(smoothed_val_losses):]
@@ -318,16 +388,17 @@ plt.xlim(combined_min_iter, combined_max_iter)
 combined_min_loss = min(min(smoothed_losses), min(smoothed_val_losses))
 combined_max_loss = max(max(smoothed_losses), max(smoothed_val_losses))
 
-if combined_max_loss > 100:
-    plt.ylim(combined_min_loss, 100)
+if combined_max_loss > 70:
+    plt.ylim(combined_min_loss, 70)
 else:
     plt.ylim(combined_min_loss, combined_max_loss)
 
-plt.title("Training and Validation Loss vs. Iterations (Smoothed)")
+plt.title(f"Training and Validation Loss vs. Iterations (Smoothed) - {args.tag}")
 plt.xlabel("Iterations")
 plt.ylabel("Loss (log scale)")
+plt.axvline(x=start_it, color='red', linestyle='--', label='Resumed')
 plt.legend()
-plt.savefig("plot_loss.png")
+plt.savefig(get_unique_filename(plots_dir, "plot_loss.png"))
 plt.show()
 
 # Plotting: Epochs vs. Loss
@@ -342,18 +413,36 @@ plt.plot(smoothed_val_epoch_array, smoothed_val_losses, label="smoothed val loss
 plt.yscale("log")
 plt.xlim(min(smoothed_epoch_array), max(smoothed_val_epoch_array))
 
-if combined_max_loss > 100:
-    plt.ylim(combined_min_loss, 100)
+if combined_max_loss > 70:
+    plt.ylim(combined_min_loss, 70)
 else:
     plt.ylim(combined_min_loss, combined_max_loss)
 
-plt.title("Training and Validation Loss vs. Epochs (Smoothed)")
+plt.title(f"Training and Validation Loss vs. Epochs (Smoothed) - {args.tag}")
 plt.xlabel("Epochs")
 plt.ylabel("Loss (log scale)")
+plt.axvline(x=start_epoch, color='red', linestyle='--', label='Resumed')
 plt.legend()
-plt.savefig("plot_loss_epochs.png")
+plt.savefig(get_unique_filename(plots_dir, "plot_loss_epochs.png"))
 plt.show()
 
-with open("lr_changes.txt", "w") as f:
+tag_suffix = f"_{args.tag}" if args.tag else ""
+lr_val_log_path = os.path.join(args.log_root, f"lr_val_log{tag_suffix}.txt")
+mode = "a" if resuming else "w"
+
+with open(lr_val_log_path, mode) as f:
+    if not resuming:
+        f.write("Learning Rate Changes Log\n")
+        f.write("=" * 30 + "\n\n")
+        f.write("Validation Loss Log\n")
+        f.write("=" * 30 + "\n")
+
     for (iter_num, old_lr, new_lr) in lr_change_log:
-        f.write(f"Iter {iter_num}: {old_lr:.6e} → {new_lr:.6e}\n")
+        epoch_num = iter_num / steps_per_epoch
+        f.write(f"Iter {iter_num} (Epoch {epoch_num:.2f}): LR {old_lr:.6e} → {new_lr:.6e}\n")
+
+    f.write("\n")
+
+    for val_iter, val_loss in zip(val_itters, val_losses):
+        val_epoch = val_iter / steps_per_epoch
+        f.write(f"Iter {val_iter} (Epoch {val_epoch:.2f}): Val Loss {val_loss:.6f}\n")
