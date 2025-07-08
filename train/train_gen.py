@@ -305,5 +305,5 @@ with open(lr_val_log_path, mode) as f:
 
     f.write("\n")
 
-    for epoch_num, val_loss in zip(epoch_numbers, epoch_val_losses):
-        f.write(f"Epoch {epoch_num}: Val Loss {val_loss:.6f}\n")
+    for epoch_num, val_loss in zip(val_epochs, epoch_val_losses):
+    f.write(f"Epoch {epoch_num}: Val Loss {val_loss:.6f}\n"
