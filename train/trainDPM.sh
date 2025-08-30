@@ -4,7 +4,10 @@
 #SBATCH --mem 64G
 #SBATCH --gpus 1
 
-source /opt/conda/bin/activate dpm-pc-gen
+source /opt/conda/etc/profile.d/conda.sh
+conda activate dpm-pc-gen
 
+cd ../
 # train generator
-python -m train.train_gen # Add arguments like --max_iters, --lr, --dataset_path, etc.
+python -m train.train_gen --dataset_path ## add the dataset path, as well as change hyperparameters
+

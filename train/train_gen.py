@@ -15,13 +15,25 @@ from models.vae_flow import *
 from models.flow import add_spectral_norm, spectral_norm_power_iteration
 from evaluation import *
 import matplotlib.pyplot as plt
+import numpy as np
 
-losses = []
-itters = []
+def get_unique_filename(directory, base_filename):
+    base, ext = os.path.splitext(base_filename)
+    candidate = os.path.join(directory, base_filename)
+    i = 1
+    while os.path.exists(candidate):
+        candidate = os.path.join(directory, f"{base}{i}{ext}")
+        i += 1
+    return candidate
+
+epoch_losses = []
+epoch_val_losses = []
+val_epochs = [] 
+epoch_numbers = []
+lr_change_log = []
 
 # Arguments
 parser = argparse.ArgumentParser()
-# Model arguments
 parser.add_argument('--model', type=str, default='gaussian', choices=['flow', 'gaussian'])
 parser.add_argument('--latent_dim', type=int, default=256)
 parser.add_argument('--num_steps', type=int, default=256)
@@ -33,228 +45,282 @@ parser.add_argument('--truncate_std', type=float, default=2.0)
 parser.add_argument('--latent_flow_depth', type=int, default=14)
 parser.add_argument('--latent_flow_hidden_dim', type=int, default=256)
 parser.add_argument('--num_samples', type=int, default=4)
-parser.add_argument('--sample_num_points', type=int, default=256) # changed from 2048
+parser.add_argument('--sample_num_points', type=int, default=256)
 parser.add_argument('--kl_weight', type=float, default=0.001)
 parser.add_argument('--residual', type=eval, default=True, choices=[True, False])
 parser.add_argument('--spectral_norm', type=eval, default=False, choices=[True, False])
-
-# Datasets and loaders
 parser.add_argument('--dataset_path', type=str, default='data/rectangle/rectangle_noisy.npy')
 parser.add_argument('--categories', type=str_list, default=['Mg22'])
 parser.add_argument('--scale_mode', type=str, default=None)
 parser.add_argument('--train_batch_size', type=int, default=128)
 parser.add_argument('--val_batch_size', type=int, default=64)
 parser.add_argument('--train_ratio', type=float, default=0.8)
-
-# Optimizer and scheduler
 parser.add_argument('--lr', type=float, default=2e-3)
 parser.add_argument('--weight_decay', type=float, default=0)
 parser.add_argument('--max_grad_norm', type=float, default=10)
 parser.add_argument('--end_lr', type=float, default=1e-4)
-parser.add_argument('--sched_start_epoch', type=int, default=200*THOUSAND) #d200k
-parser.add_argument('--sched_end_epoch', type=int, default=400*THOUSAND) ##400k
-
-# Training
+parser.add_argument('--sched_start_epoch', type=int, default=200*THOUSAND)  
+parser.add_argument('--sched_end_epoch', type=int, default=400*THOUSAND)  
 parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--logging', type=eval, default=True, choices=[True, False])
 parser.add_argument('--log_root', type=str, default='./logs_gen')
 parser.add_argument('--device', type=str, default='cuda')
-parser.add_argument('--max_iters', type=int, default=1000*THOUSAND) #1000k itterations
-parser.add_argument('--val_freq', type=int, default=100*THOUSAND) #devided by 10 here
-parser.add_argument('--test_freq', type=int, default=300*THOUSAND) #300k
-parser.add_argument('--test_size', type=int, default=400) 
-parser.add_argument('--tag', type=str, default=None) 
+parser.add_argument('--max_epochs', type=int, default=1000*THOUSAND) 
+parser.add_argument('--val_freq', type=int, default=100)  
+parser.add_argument('--test_freq', type=int, default=300)
+parser.add_argument('--test_size', type=int, default=400)
+parser.add_argument('--tag', type=str, default=None)
 args = parser.parse_args()
 seed_all(args.seed)
 
-# Logging
-if args.logging:
-    log_dir = get_new_log_dir(args.log_root, prefix='GEN_Mg22_4D_', postfix='_' + args.tag if args.tag is not None else '')
-    logger = get_logger('train', log_dir)
-    writer = torch.utils.tensorboard.SummaryWriter(log_dir)
-    ckpt_mgr = CheckpointManager(log_dir)
-    log_hyperparams(writer, args)
-else:
-    logger = get_logger('train', None)
-    writer = BlackHole()
-    ckpt_mgr = BlackHole()
-logger.info(args)
+def setup_logging(args):
+    # Initialize logger, TensorBoard writer, and checkpoint manager based on args
+    if args.logging:
+        assert args.tag is not None, "You must provide a --tag to name the log directory."
+        log_dir = os.path.join(args.log_root, f"GEN_{args.tag}")
+        os.makedirs(log_dir, exist_ok=True)
+        logger = get_logger('train', log_dir)
+        writer = torch.utils.tensorboard.SummaryWriter(log_dir)
+        ckpt_mgr = CheckpointManager(log_dir)
+        log_hyperparams(writer, args)
+    else:
+        logger = get_logger('train', None)
+        writer = BlackHole()
+        ckpt_mgr = BlackHole()
+    return logger, writer, ckpt_mgr
 
-# Datasets and loaders
-logger.info('Loading datasets...')
+def load_data(args, logger):
+    # Load dataset, split into training and validation, create dataloaders
+    logger.info('Loading datasets...')
+    data = np.load(args.dataset_path)
+    data = torch.from_numpy(data).float()
+    n_train = int(len(data) * args.train_ratio)
+    train_data = data[:n_train]
+    val_data = data[n_train:]
+    train_dset = TensorDataset(train_data)
+    val_dset = TensorDataset(val_data)
+    train_loader = DataLoader(train_dset, batch_size=args.train_batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dset, batch_size=args.val_batch_size)
+    return train_loader, val_loader
 
-# Load the data
-data = np.load(args.dataset_path)
-
-# Convert to PyTorch Tensors
-data = torch.from_numpy(data).float()
-
-n_train = int(len(data) * args.train_ratio)
-
-# Split the data
-train_data = data[:n_train]
-val_data = data[n_train:]
-
-# Create TensorDatasets
-train_dset = TensorDataset(train_data)
-val_dset = TensorDataset(val_data)
-
-train_iter = get_data_iterator(DataLoader(
-    train_dset,
-    batch_size=args.train_batch_size,
-    num_workers=0,
-))
-val_loader = DataLoader(val_dset, batch_size=args.val_batch_size)
-
-
-# Model
-logger.info('Building model...')
-if args.model == 'gaussian':
-    model = GaussianVAE(args).to(args.device)
-elif args.model == 'flow':
-    model = FlowVAE(args).to(args.device)
-logger.info(repr(model))
-if args.spectral_norm:
-    add_spectral_norm(model, logger=logger)
-
-# Optimizer and scheduler
-optimizer = torch.optim.Adam(model.parameters(), 
-    lr=args.lr, 
-    weight_decay=args.weight_decay
-)
-scheduler = get_linear_scheduler(
-    optimizer,
-    start_epoch=args.sched_start_epoch,
-    end_epoch=args.sched_end_epoch,
-    start_lr=args.lr,
-    end_lr=args.end_lr
-)
-
-# Train, validate and test
-def train(it):
-    # Load data
-    batch = next(train_iter)
-    x = batch[0].to(args.device)
-    # print("X shape: ", x.shape)
-
-    # Reset grad and model state
-    optimizer.zero_grad()
-    model.train()
+def build_model(args, logger):
+    # Construct model and apply spectral norm if requested
+    logger.info('Building model...')
+    if args.model == 'gaussian':
+        model = GaussianVAE(args).to(args.device)
+    elif args.model == 'flow':
+        model = FlowVAE(args).to(args.device)
+    else:
+        raise ValueError(f"Unsupported model type: {args.model}")
+    logger.info(repr(model))
     if args.spectral_norm:
-        spectral_norm_power_iteration(model, n_power_iterations=1)
+        add_spectral_norm(model, logger=logger)
+    return model
 
-    # Forward
-    kl_weight = args.kl_weight
-    loss = model.get_loss(x, kl_weight=kl_weight, writer=writer, it=it)
+def load_checkpoint_if_exists(checkpoint_path, model, optimizer, scheduler, args, logger):
+    # Load checkpoint if exists, return start epoch and previous logs or defaults
+    start_epoch = 1
+    epoch_losses = []
+    epoch_val_losses = []
+    epoch_numbers = []
+    val_epochs = []
+    lr_change_log = []
+    resuming = False
 
+    if os.path.exists(checkpoint_path):
+        logger.info(f"Resuming from checkpoint: {checkpoint_path}")
+        ckpt = torch.load(checkpoint_path, map_location=args.device)
+        model.load_state_dict(ckpt['model_state'])
+        optimizer.load_state_dict(ckpt['optimizer_state'])
+        scheduler.load_state_dict(ckpt['scheduler_state'])
+        start_epoch = ckpt['epoch'] + 1
+        epoch_losses = ckpt.get('losses', [])
+        epoch_val_losses = ckpt.get('val_losses', [])
+        epoch_numbers = ckpt.get('epoch_numbers', [])
+        val_epochs = ckpt.get('val_epochs', [])
+        lr_change_log = ckpt.get('lr_change_log', [])
+        resuming = True
+        logger.info(f"Resumed at epoch {start_epoch}")
 
-    # Backward and optimize
-    loss.backward()
-    orig_grad_norm = clip_grad_norm_(model.parameters(), args.max_grad_norm)
-    optimizer.step()
-    scheduler.step()
+    return start_epoch, epoch_losses, epoch_val_losses, epoch_numbers, val_epochs, lr_change_log, resuming
 
-    logger.info('[Train] Iter %04d | Loss %.6f | Grad %.4f | KLWeight %.4f' % (
-        it, loss.item(), orig_grad_norm, kl_weight
-    ))
-
-    if((it % 50*THOUSAND) == 0):
-        losses.append(loss.item())
-        itters.append(it)
-    
-    writer.add_scalar('train/loss', loss, it)
-    writer.add_scalar('train/kl_weight', kl_weight, it)
-    writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], it)
-    writer.add_scalar('train/grad_norm', orig_grad_norm, it)
- 
-    writer.flush()
-
-def validate_inspect(it):
-    z = torch.randn([args.num_samples, args.latent_dim]).to(args.device)
-    x = model.sample(z, args.sample_num_points, flexibility=args.flexibility) #, truncate_std=args.truncate_std)
-    writer.add_mesh('val/pointcloud', x, global_step=it)
-    writer.flush()
-    logger.info('[Inspect] Generating samples...')
-
-def test(it):
-    ref_pcs = []
-    for i, data in enumerate(val_dset):
-        if i >= args.test_size:
-            break
-        ref_pcs.append(data['0'].unsqueeze(0))
-    ref_pcs = torch.cat(ref_pcs, dim=0)
-
-    gen_pcs = []
-    for i in tqdm(range(0, math.ceil(args.test_size / args.val_batch_size)), 'Generate'):
-        with torch.no_grad():
-            z = torch.randn([args.val_batch_size, args.latent_dim]).to(args.device)
-            x = model.sample(z, args.sample_num_points, flexibility=args.flexibility)
-            gen_pcs.append(x.detach().cpu())
-            # print("pc shape: ", gen_pcs[i].shape)
-    gen_pcs = torch.cat(gen_pcs, dim=0)[:args.test_size]
-    # print("shape of gen_pcs: ", gen_pcs.shape)
-
-    # Denormalize point clouds, all shapes have zero mean.
-    # [WARNING]: Do NOT denormalize!
-    # ref_pcs *= val_dset.stats['std']
-    # gen_pcs *= val_dset.stats['std']
-
+def validate_inspect(model, val_loader, args, epoch, logger, writer):
+    # Evaluate model on validation set and log average loss
+    model.eval()
+    total_loss = 0.0
+    count = 0
     with torch.no_grad():
-        results = compute_all_metrics(gen_pcs.to(args.device), ref_pcs.to(args.device), args.val_batch_size)
-        results = {k:v.item() for k, v in results.items()}
-        # print(gen_pcs.cpu().numpy().shape)
-        # print(ref_pcs.cpu().numpy().shape)
-        jsd = jsd_between_point_cloud_sets(gen_pcs.cpu().numpy(), ref_pcs.cpu().numpy())
-        results['jsd'] = jsd
+        for batch in val_loader:
+            x = batch[0].to(args.device)
+            loss = model.get_loss(x, kl_weight=args.kl_weight)
+            total_loss += loss.item()
+            count += 1
+    avg_val_loss = total_loss / count
+    logger.info(f"[Validation] Epoch {epoch} | Avg Val Loss: {avg_val_loss:.6f}")
+    writer.add_scalar('val/loss', avg_val_loss, epoch)
+    return avg_val_loss
 
-    # CD related metrics
-    writer.add_scalar('test/Coverage_CD', results['lgan_cov-CD'], global_step=it)
-    writer.add_scalar('test/MMD_CD', results['lgan_mmd-CD'], global_step=it)
-    writer.add_scalar('test/1NN_CD', results['1-NN-CD-acc'], global_step=it)
-    # EMD related metrics
-    # writer.add_scalar('test/Coverage_EMD', results['lgan_cov-EMD'], global_step=it)
-    # writer.add_scalar('test/MMD_EMD', results['lgan_mmd-EMD'], global_step=it)
-    # writer.add_scalar('test/1NN_EMD', results['1-NN-EMD-acc'], global_step=it)
-    # JSD
-    writer.add_scalar('test/JSD', results['jsd'], global_step=it)
+def train_loop(args):
+    # Main training loop including training, validation, checkpoint saving, and logging
+    logger, writer, ckpt_mgr = setup_logging(args)
+    train_loader, val_loader = load_data(args, logger)
+    model = build_model(args, logger)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = get_linear_scheduler(
+        optimizer,
+        start_epoch=args.sched_start_epoch,
+        end_epoch=args.sched_end_epoch,
+        start_lr=args.lr,
+        end_lr=args.end_lr
+    )
 
-    # logger.info('[Test] Coverage  | CD %.6f | EMD %.6f' % (results['lgan_cov-CD'], results['lgan_cov-EMD']))
-    # logger.info('[Test] MinMatDis | CD %.6f | EMD %.6f' % (results['lgan_mmd-CD'], results['lgan_mmd-EMD']))
-    # logger.info('[Test] 1NN-Accur | CD %.6f | EMD %.6f' % (results['1-NN-CD-acc'], results['1-NN-EMD-acc']))
-    logger.info('[Test] Coverage  | CD %.6f | EMD n/a' % (results['lgan_cov-CD'], ))
-    logger.info('[Test] MinMatDis | CD %.6f | EMD n/a' % (results['lgan_mmd-CD'], ))
-    logger.info('[Test] 1NN-Accur | CD %.6f | EMD n/a' % (results['1-NN-CD-acc'], ))
-    logger.info('[Test] JsnShnDis | %.6f ' % (results['jsd']))
+    checkpoint_filename = f"resume_ckpt_{args.tag}.pt" if args.tag else "resume_ckpt.pt"
+    checkpoint_path = os.path.join(args.log_root if args.logging else '.', checkpoint_filename)
 
-# Main loop
-logger.info('Start training...')
-try:
-    it = 1
-    while it <= args.max_iters:
-        train(it)
-        if it % args.val_freq == 0 or it == args.max_iters:
-            validate_inspect(it)
-            opt_states = {
-                'optimizer': optimizer.state_dict(),
-                'scheduler': scheduler.state_dict(),
-            }
-            ckpt_mgr.save(model, args, 0, others=opt_states, step=it)
-        # if it % args.test_freq == 0 or it == args.max_iters:
-        #     test(it)
-        it += 1
+    start_epoch, epoch_losses, epoch_val_losses, epoch_numbers, val_epochs, lr_change_log, resuming = \
+        load_checkpoint_if_exists(checkpoint_path, model, optimizer, scheduler, args, logger)
 
-except KeyboardInterrupt:
-    logger.info('Terminating...')
+    prev_lr = optimizer.param_groups[0]['lr']
+    plots_dir = os.path.join(args.log_root, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
 
-# print(itters)
-# print(losses)
+    try:
+        for epoch in range(start_epoch, args.max_epochs + 1):
+            running_loss = 0.0
+            running_count = 0
 
-plt.plot(itters, losses, label="loss")
-plt.title("Loss vs. Itterations for Mg22 dataset")
-plt.xlabel("Itterations")
-plt.ylabel("loss")
-plt.legend()
-plt.savefig('plot_loss.png')
-plt.show()
+            model.train()
+            for batch in train_loader:
+                x = batch[0].to(args.device)
+                optimizer.zero_grad()
+                if args.spectral_norm:
+                    spectral_norm_power_iteration(model, n_power_iterations=1)
 
-print("END")
+                loss = model.get_loss(x, kl_weight=args.kl_weight)
+                loss.backward()
+                grad_norm = clip_grad_norm_(model.parameters(), args.max_grad_norm)
+                optimizer.step()
+
+                running_loss += loss.item()
+                running_count += 1
+
+                current_lr = optimizer.param_groups[0]['lr']
+                if current_lr != prev_lr:
+                    lr_change_log.append((epoch, prev_lr, current_lr))
+                    prev_lr = current_lr
+
+            scheduler.step()
+            avg_epoch_loss = running_loss / running_count
+
+            epoch_losses.append(avg_epoch_loss)
+            epoch_numbers.append(epoch)
+
+            logger.info(f'[Train] Epoch {epoch} | Avg Loss {avg_epoch_loss:.6f} | Grad {grad_norm:.4f} | LR {optimizer.param_groups[0]["lr"]:.6e}')
+            writer.add_scalar('train/loss', avg_epoch_loss, epoch)
+            writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], epoch)
+            writer.add_scalar('train/grad_norm', grad_norm, epoch)
+
+            if epoch % 20 == 0 or epoch == args.max_epochs:
+                val_loss = validate_inspect(model, val_loader, args, epoch, logger, writer)
+                epoch_val_losses.append(val_loss)
+                val_epochs.append(epoch)
+
+                opt_states = {
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                }
+                ckpt_mgr.save(model, args, 0, others=opt_states, step=epoch)
+                torch.save({
+                    'model_state': model.state_dict(),
+                    'optimizer_state': optimizer.state_dict(),
+                    'scheduler_state': scheduler.state_dict(),
+                    'epoch': epoch,
+                    'losses': epoch_losses,
+                    'val_losses': epoch_val_losses,
+                    'epoch_numbers': epoch_numbers,
+                    'val_epochs': val_epochs,
+                    'lr_change_log': lr_change_log,
+                }, checkpoint_path)
+
+    except KeyboardInterrupt:
+        logger.info('Training interrupted. Saving checkpoint...')
+        torch.save({
+            'model_state': model.state_dict(),
+            'optimizer_state': optimizer.state_dict(),
+            'scheduler_state': scheduler.state_dict(),
+            'epoch': epoch,
+            'losses': epoch_losses,
+            'val_losses': epoch_val_losses,
+            'epoch_numbers': epoch_numbers,
+            'lr_change_log': lr_change_log,
+        }, checkpoint_path)
+        logger.info('Checkpoint saved.')
+
+    plot_loss(args, epoch_losses, epoch_numbers, epoch_val_losses, val_epochs, lr_change_log, plots_dir, resuming, start_epoch)
+
+def plot_loss(args, epoch_losses, epoch_numbers, epoch_val_losses, val_epochs, lr_change_log, plots_dir, resuming, start_epoch):
+    # Plot training and validation losses with smoothing and save the figure
+    def moving_average(data, window_size):
+        if len(data) < window_size:
+            return data
+        return np.convolve(data, np.ones(window_size) / window_size, mode='valid')
+
+    window_size = 5
+    loss_array = np.array(epoch_losses)
+    epoch_array = np.array(epoch_numbers)
+    val_loss_array = np.array(epoch_val_losses)
+    val_epoch_array = np.array(val_epochs)
+
+    smoothed_losses = moving_average(loss_array, window_size)
+    smoothed_epochs = epoch_array[len(epoch_array) - len(smoothed_losses):]
+
+    smoothed_val_losses = moving_average(val_loss_array, window_size)
+    smoothed_val_epochs = val_epoch_array[len(val_epoch_array) - len(smoothed_val_losses):]
+
+    plt.figure()
+    plt.plot(epoch_array, loss_array, label="raw train loss", color='gray', alpha=0.3)
+    plt.plot(val_epoch_array, val_loss_array, label="raw val loss", color='gray', alpha=0.3, linestyle='--')
+    plt.plot(smoothed_epochs, smoothed_losses, label="smoothed train loss", color='blue', linewidth=2)
+    plt.plot(smoothed_val_epochs, smoothed_val_losses, label="smoothed val loss", color='green', linewidth=2)
+    plt.yscale("log")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss (log scale)")
+    plt.title(f"Training and Validation Loss vs. Epochs (Smoothed) - {args.tag}")
+
+    combined_min_loss = min(min(smoothed_losses), min(smoothed_val_losses))
+    combined_max_loss = max(max(smoothed_losses), max(smoothed_val_losses))
+
+    if combined_max_loss > 70:
+        plt.ylim(combined_min_loss, 70)
+    else:
+        plt.ylim(combined_min_loss, combined_max_loss)
+
+    plt.axvline(x=start_epoch, color='red', linestyle='--', label='Resumed')
+    plt.legend()
+    plt.savefig(get_unique_filename(plots_dir, "plot_loss_epochs.png"))
+    plt.show()
+
+    # Log LR and Val Loss info to file
+    tag_suffix = f"_{args.tag}" if args.tag else ""
+    lr_val_log_path = os.path.join(args.log_root, f"lr_val_log{tag_suffix}.txt")
+    mode = "a" if resuming else "w"
+    with open(lr_val_log_path, mode) as f:
+        if not resuming:
+            f.write("Learning Rate Changes Log\n")
+            f.write("=" * 30 + "\n\n")
+            f.write("Validation Loss Log\n")
+            f.write("=" * 30 + "\n")
+
+        for (epoch_num, old_lr, new_lr) in lr_change_log:
+            f.write(f"Epoch {epoch_num}: LR {old_lr:.6e} → {new_lr:.6e}\n")
+
+        f.write("\n")
+
+        for epoch_num, val_loss in zip(val_epochs, epoch_val_losses):
+            f.write(f"Epoch {epoch_num}: Val Loss {val_loss:.6f}\n")
+
+if __name__ == "__main__":
+    # Entry point for running training script
+    args = parse_args()
+    seed_all(args.seed)
+    train_loop(args)

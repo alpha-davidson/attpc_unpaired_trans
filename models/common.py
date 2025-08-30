@@ -18,7 +18,7 @@ def gaussian_entropy(logvar):
 def standard_normal_logprob(z):
     dim = z.size(-1)
     log_z = -0.5 * dim * np.log(2 * np.pi)
-    return log_z - z.pow(2) / 2
+    return log_z - 0.5 * (z.pow(2).sum(dim=-1))
 
 
 def truncated_normal_(tensor, mean=0, std=1, trunc_std=2):
