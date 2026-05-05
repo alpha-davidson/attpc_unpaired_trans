@@ -12,13 +12,16 @@ def reparameterize_gaussian(mean, logvar):
 def gaussian_entropy(logvar):
     const = 0.5 * float(logvar.size(1)) * (1. + np.log(np.pi * 2))
     ent = 0.5 * logvar.sum(dim=1, keepdim=False) + const
+    
+    
     return ent
 
 
 def standard_normal_logprob(z):
-    dim = z.size(-1)
-    log_z = -0.5 * dim * np.log(2 * np.pi)
-    return log_z - z.pow(2) / 2
+    # dim = z.size(-1)
+    # log_z = -0.5 * dim * np.log(2 * np.pi)
+    # return log_z - z.pow(2) / 2
+    return -0.5 * (z.pow(2).sum(dim=1) + z.size(1) * np.log(2 * np.pi))
 
 
 def truncated_normal_(tensor, mean=0, std=1, trunc_std=2):

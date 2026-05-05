@@ -30,7 +30,8 @@ class GaussianVAE(Module):
         batch_size, _, _ = x.size()
         z_mu, z_sigma = self.encoder(x)
         z = reparameterize_gaussian(mean=z_mu, logvar=z_sigma)  # (B, F)
-        log_pz = standard_normal_logprob(z).sum(dim=1)  # (B, ), Independence assumption
+        #log_pz = standard_normal_logprob(z).sum(dim=1)  # (B, ), Independence assumption
+        log_pz = standard_normal_logprob(z)
         entropy = gaussian_entropy(logvar=z_sigma)      # (B, )
         loss_prior = (- log_pz - entropy).mean()
 
@@ -42,6 +43,7 @@ class GaussianVAE(Module):
             writer.add_scalar('train/loss_entropy', -entropy.mean(), it)
             writer.add_scalar('train/loss_prior', -log_pz.mean(), it)
             writer.add_scalar('train/loss_recons', loss_recons, it)
+            writer.add_scalar('train/kl_loss', loss_prior, it)
 
         return loss
 
