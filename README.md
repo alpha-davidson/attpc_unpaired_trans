@@ -22,3 +22,7 @@ sbatch train/trainDPM.sh
 ```
 
 After training, you can find the checkpoints of models inside logs_gen folder. Paste the desired checkpoint path to [CycleDiffusion.ipynb](CycleDiffusion) notebook. Then follows the instruction inside the notebook to start translation.
+
+## Acknowledgements
+
+This material is based on work supported by the National Science Foundation under awards [OAC-2311263](https://www.nsf.gov/awardsearch/showAward?AWD_ID=2311263) and [PHY-2012865](https://www.nsf.gov/awardsearch/showAward?AWD_ID=2012865).
